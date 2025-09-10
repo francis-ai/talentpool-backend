@@ -10,6 +10,7 @@ import Announcement from "./notification.js";
 import regforcourseRoutes from "./regforcourseRoutes.js";
 import Talents from "./Talents.js"
 import blogRouter from "./blog.js"
+
 dotenv.config();
 
 const app = express();
@@ -35,7 +36,7 @@ app.use("/api", Announcement)
 app.use("/api", Talents);
 app.use("/api/blogs", blogRouter);
 
-const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => {
-  console.log(`🚀 Server running on http://localhost:${PORT}`);
+const PORT = process.env.PORT || 9000;
+app.listen(PORT, "0.0.0.0", () => {
+  console.log(`🚀 Server running on http://0.0.0.0:${PORT}`);
 });
