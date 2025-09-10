@@ -1,6 +1,5 @@
 import express from "express";
 import bcrypt from "bcryptjs";
-
 import jwt from "jsonwebtoken";
 import db from "./db.js";
 import { v4 as uuidv4 } from "uuid";
@@ -22,22 +21,19 @@ const adminEmails = ["admin@example.com", "admin@talentpool.com"];
 const query = util.promisify(db.query).bind(db);
 
 // =================== Nodemailer ===================
-// Use Gmail App Password here (not your normal password)
 const transporter = nodemailer.createTransport({
   service: "gmail",
   auth: {
-    user: process.env.EMAIL_USER, // your Gmail
-    pass: process.env.EMAIL_PASS, // Gmail App Password
+    user: process.env.EMAIL_USER,
+    pass: process.env.EMAIL_PASS,
   },
 });
 
-// Verify transporter on startup
 transporter.verify((err, success) => {
   if (err) console.error("❌ SMTP Connection Error:", err);
   else console.log("✅ SMTP Server ready to send emails");
 });
 
-// Helper to send emails
 const sendMail = async (to, subject, html) => {
   try {
     const info = await transporter.sendMail({
@@ -61,8 +57,6 @@ const generateAccessToken = (payload) =>
 // =================== REGISTER ===================
 authentication.post("/registerAuthen", async (req, res) => {
   const { name, email, password } = req.body;
-  console.log("📝 Registration attempt:", { name, email });
-
   try {
     if (!name || !email || !password)
       return res.status(400).json({ message: "All fields are required" });
@@ -84,14 +78,13 @@ authentication.post("/registerAuthen", async (req, res) => {
 
     const token = generateAccessToken({ email, role });
 
-    // Send welcome email
     try {
       const info = await sendMail(
         email,
         "🎉 Welcome to Talent Pool!",
         `<h2>Hello ${name},</h2>
          <p>Welcome to <strong>Talent Pool</strong>! We’re thrilled to have you on board.</p>
-         <p>Get ready to explore, innovate, and grow with our team. Stay connected and let’s build the future of tech together!</p>
+         <p>Get ready to explore, innovate, and grow with our team.</p>
          <p>Best regards,<br/>The Talent Pool Team</p>`
       );
 
@@ -148,7 +141,7 @@ authentication.post("/login", async (req, res) => {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
       sameSite: "strict",
-      maxAge: 7 * 24 * 60 * 60 * 1000,
+      maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
     });
 
     return res.status(200).json({ message: "Login successful", token, role: user.role });
@@ -157,6 +150,79 @@ authentication.post("/login", async (req, res) => {
     return res.status(500).json({ message: "Login failed" });
   }
 });
+
+// =================== TOKEN VERIFICATION ===================
+export function verifyToken(req, res, next) {
+  const authHeader = req.headers["authorization"];
+  const token = authHeader && authHeader.split(" ")[1];
+  if (!token) return res.status(403).json({ message: "Access denied" });
+
+  jwt.verify(token, JWT_SECRET, (err, user) => {
+    if (err) return res.status(403).json({ message: "Invalid token" });
+    req.user = user;
+    next();
+  });
+}
+
+// =================== REFRESH TOKEN ===================
+authentication.post("/refresh-token", async (req, res) => {
+  const { refreshToken } = req.cookies;
+  if (!refreshToken) return res.status(401).json({ message: "No refresh token found" });
+
+  try {
+    const rows = await query("SELECT * FROM refresh_tokens WHERE token = ?", [refreshToken]);
+    if (rows.length === 0) return res.status(403).json({ message: "Invalid refresh token" });
+
+    const userEmail = rows[0].email;
+    const userRow = await query("SELECT email, role FROM authentication WHERE email = ?", [userEmail]);
+    if (userRow.length === 0) return res.status(404).json({ message: "User not found" });
+
+    const token = jwt.sign({ email: userRow[0].email, role: userRow[0].role }, JWT_SECRET, { expiresIn: "1h" });
+    res.status(200).json({ token });
+  } catch (err) {
+    console.error("❌ Refresh token error:", err);
+    res.status(500).json({ message: "Failed to refresh token" });
+  }
+});
+
+// =================== ADMIN PROMOTE TO TUTOR ===================
+authentication.put("/promote-tutor/:email", verifyToken, async (req, res) => {
+  if (req.user.role !== "admin") return res.status(403).json({ message: "Access denied" });
+
+  const { email } = req.params;
+  const { course_id } = req.body;
+
+  try {
+    const result = await query("UPDATE authentication SET role = 'tutor' WHERE email = ?", [email]);
+    if (result.affectedRows === 0) return res.status(404).json({ message: "User not found" });
+
+    if (course_id) {
+      await query(
+        "INSERT INTO tutor_courses (tutor_email, course_id, assigned_at) VALUES (?, ?, ?)",
+        [email, course_id, new Date()]
+      );
+    }
+
+    await sendMail(
+      email,
+      "🎓 You have been promoted to Tutor!",
+      `<h2>Congratulations!</h2>
+       <p>Hello,</p>
+       <p>You have been promoted to <strong>Tutor</strong> by the admin.</p>
+       ${course_id ? `<p>You have been assigned to course ID: ${course_id}</p>` : ""}
+       <p>Welcome to your new role and start mentoring your students!</p>
+       <p>Best regards,<br/>Talent Pool Team</p>`
+    );
+
+    res.status(200).json({ message: "User promoted to tutor successfully and email sent" });
+  } catch (err) {
+    console.error("❌ Promote to tutor error:", err);
+    res.status(500).json({ message: "Failed to promote user to tutor" });
+  }
+});
+
+// =================== OTHER ROUTES (PROFILE, USERS, PASSWORD RESET, ETC.) ===================
+
 
 // =================== LOGOUT ===================
 authentication.post("/logout", async (req, res) => {
@@ -178,18 +244,7 @@ authentication.post("/logout", async (req, res) => {
   }
 });
 
-// =================== TOKEN VERIFICATION ===================
-export function verifyToken(req, res, next) {
-  const authHeader = req.headers["authorization"];
-  const token = authHeader && authHeader.split(" ")[1];
-  if (!token) return res.status(403).json({ message: "Access denied" });
 
-  jwt.verify(token, JWT_SECRET, (err, user) => {
-    if (err) return res.status(403).json({ message: "Invalid token" });
-    req.user = user;
-    next();
-  });
-}
 
 // =================== FORGOT PASSWORD ===================
 authentication.post("/forgot-password", async (req, res) => {
@@ -440,25 +495,5 @@ authentication.put("/update-password", verifyToken, async (req, res) => {
 });
 
 
-authentication.post("/refresh-token", async (req, res) => {
-  const { refreshToken } = req.cookies;
-  if (!refreshToken) return res.status(401).json({ message: "No refresh token found" });
-
-  try {
-    const rows = await query("SELECT * FROM refresh_tokens WHERE token = ?", [refreshToken]);
-    if (rows.length === 0) return res.status(403).json({ message: "Invalid refresh token" });
-
-    const userEmail = rows[0].email;
-    const userRow = await query("SELECT email, role FROM authentication WHERE email = ?", [userEmail]);
-    if (userRow.length === 0) return res.status(404).json({ message: "User not found" });
-
-    const token = jwt.sign({ email: userRow[0].email, role: userRow[0].role }, JWT_SECRET, { expiresIn: "1h" });
-
-    res.status(200).json({ token });
-  } catch (err) {
-    console.error("❌ Refresh token error:", err);
-    res.status(500).json({ message: "Failed to refresh token" });
-  }
-});
 
 export default authentication;

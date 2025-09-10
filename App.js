@@ -7,7 +7,9 @@ import uploaded from "./uploadfile.js";
 import path from "path";
 import paymentRouter from "./payment.js";
 import Announcement from "./notification.js";
-
+import regforcourseRoutes from "./regforcourseRoutes.js";
+import Talents from "./Talents.js"
+import blogRouter from "./blog.js"
 dotenv.config();
 
 const app = express();
@@ -28,7 +30,10 @@ app.use("/api", registrationRoutes);
 app.use("/api", authentication);
 app.use("/api", uploaded);
 app.use("/api/payment", paymentRouter);
+app.use("/api", regforcourseRoutes);
 app.use("/api", Announcement)
+app.use("/api", Talents);
+app.use("/api/blogs", blogRouter);
 
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
