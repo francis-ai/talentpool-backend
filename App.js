@@ -17,10 +17,15 @@ const app = express();
 
 // Middleware
 app.use(cors({
-   origin: "https://www.talentpoolafrica.com.ng",
+  origin: [
+    "https://www.talentpoolafrica.com.ng",
+    "https://test.talentpoolafrica.com.ng"
+  ],
   credentials: true,
+  methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization"]
 }));
-app.use(express.json());
+
 
 // ✅ Serve uploaded images
 app.use("/uploads", express.static(path.resolve("uploads")));
@@ -35,6 +40,11 @@ app.use("/api", regforcourseRoutes);
 app.use("/api", Announcement)
 app.use("/api", Talents);
 app.use("/api/blogs", blogRouter);
+
+app.get("/", (req, res) => {
+  res.send("Backend is running!");
+});
+
 
 const PORT = process.env.PORT || 9000;
 app.listen(PORT, "0.0.0.0", () => {
