@@ -1,7 +1,7 @@
 // uploaded.js
 import express from "express";
 import { query } from "./db.js";
-import { verifyToken } from "./AuthenticationRoute.js";
+import { verifyToken } from "./Auth/AuthenticationMiddleware.js";
 import multer from "multer";
 import path from "path";
 

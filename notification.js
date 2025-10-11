@@ -1,6 +1,6 @@
 import express from "express";
 import db from "./db.js"; // your MySQL connection
-import { verifyToken } from "./AuthenticationRoute.js"; // admin auth
+import { verifyToken } from "./Auth/AuthenticationMiddleware.js"; // admin auth
 
 const Announcement = express.Router();
 

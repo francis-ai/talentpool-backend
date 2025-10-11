@@ -2,7 +2,7 @@
 import express from "express";
 import db from "./db.js";
 import { v4 as uuidv4 } from "uuid";
-import { verifyToken } from "./AuthenticationRoute.js";
+import { verifyToken } from "./Auth/AuthenticationMiddleware.js";
 import multer from "multer";
 import path from "path";
 import util from "util";

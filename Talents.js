@@ -1,6 +1,6 @@
 import express from "express";
 import { query } from "./db.js";
-import { verifyToken } from "./AuthenticationRoute.js";
+import { verifyToken } from "./Auth/AuthenticationMiddleware.js";
 import nodemailer from "nodemailer";
 
 const Talents = express.Router();
