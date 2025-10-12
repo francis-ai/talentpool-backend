@@ -44,17 +44,19 @@ payment.post("/pay/:courseId", verifyTokenOptional, async (req, res) => {
   const { half, email } = req.body;
   const user_email = req.user?.email || email;
 
-  if (!user_email) return res.status(400).json({ message: "Email is required to make payment." });
+  if (!user_email)
+    return res.status(400).json({ message: "Email is required to make payment." });
 
   try {
     const courseRow = await query("SELECT * FROM CreateCourse WHERE id = ?", [courseId]);
-    if (!courseRow.length) return res.status(404).json({ message: "Course not found" });
+    if (!courseRow.length)
+      return res.status(404).json({ message: "Course not found" });
 
     const coursePrice = courseRow[0].price;
     const paymentAmount = half ? coursePrice / 2 : coursePrice;
     const amountInKobo = paymentAmount * 100;
 
-    // Initialize Paystack transaction
+    // ✅ Initialize Paystack transaction
     const paystackRes = await axios.post(
       "https://api.paystack.co/transaction/initialize",
       {
@@ -63,52 +65,125 @@ payment.post("/pay/:courseId", verifyTokenOptional, async (req, res) => {
         metadata: { courseId, half },
         callback_url: `${process.env.FRONTEND_URL}/payment-success`,
       },
-      { headers: { Authorization: `Bearer ${process.env.PAYSTACK_SECRET_KEY}`, "Content-Type": "application/json" } }
+      { headers: { Authorization: `Bearer ${process.env.PAYSTACK_SECRET_KEY}` } }
     );
 
-    const reference = paystackRes.data.data.reference;
-
-    if (req.user) {
-      // Logged-in user → Enrollments
-      const existing = await query("SELECT * FROM Enrollments WHERE user_email=? AND course_id=?", [user_email, courseId]);
-      if (!existing.length) {
-        await query(
-          "INSERT INTO Enrollments (user_email, course_id, paid, reference, amount_paid, half_payment_date) VALUES (?, ?, ?, ?, ?, ?)",
-          [user_email, courseId, half ? 0 : 1, reference, paymentAmount, half ? new Date() : null]
-        );
-      } else {
-        const prevAmount = existing[0].amount_paid || 0;
-        const newAmountPaid = prevAmount + paymentAmount;
-        const isPaid = newAmountPaid >= coursePrice ? 1 : 0;
-        let halfPaymentDate = existing[0].half_payment_date;
-        if (half && !halfPaymentDate) halfPaymentDate = new Date();
-
-        await query(
-          "UPDATE Enrollments SET reference=?, amount_paid=?, paid=?, half_payment_date=? WHERE user_email=? AND course_id=?",
-          [reference, newAmountPaid, isPaid, halfPaymentDate, user_email, courseId]
-        );
-      }
-    } else {
-      // Guest → TempPayments
-      await query(
-        "INSERT INTO TempPayments (email, course_id, amount_paid, reference, half_payment_date, paid) VALUES (?, ?, ?, ?, ?, ?)",
-        [user_email, courseId, paymentAmount, reference, half ? new Date() : null, half ? 0 : 1]
-      );
-
-      // Only send email to guest who is not registered yet
-      const existingUser = await query("SELECT * FROM authentication WHERE email=?", [user_email]);
-
-      if (!existingUser.length) {
-        await sendAccountCreationEmail(user_email);
-      }
-    }
-
+    // 🚫 Don't save anything yet (only save after verify)
     res.json({ payment_url: paystackRes.data.data.authorization_url });
   } catch (err) {
     console.error("Payment Init Error:", err.response?.data || err.message);
     res.status(500).json({ message: "Failed to start payment" });
   }
 });
+
+// ================= VERIFY PAYMENT =================
+payment.get("/verify/:reference", verifyTokenOptional, async (req, res) => {
+  const { reference } = req.params;
+  const user_email = req.user?.email || req.query.email;
+
+  if (!user_email)
+    return res.status(400).json({ message: "Email is required." });
+
+  try {
+    // ✅ Verify payment with Paystack
+    const response = await axios.get(
+      `https://api.paystack.co/transaction/verify/${reference}`,
+      { headers: { Authorization: `Bearer ${process.env.PAYSTACK_SECRET_KEY}` } }
+    );
+
+    const data = response.data.data;
+    if (data.status !== "success") {
+      return res.status(400).json({ message: "Payment not successful." });
+    }
+
+    const { courseId, half } = data.metadata;
+    const course = await query("SELECT price FROM CreateCourse WHERE id=?", [courseId]);
+    if (!course.length) {
+      return res.status(404).json({ message: "Course not found." });
+    }
+
+    const coursePrice = course[0].price;
+    const amountPaid = data.amount / 100;
+
+    const existing = await query(
+      "SELECT * FROM Enrollments WHERE user_email=? AND course_id=?",
+      [user_email, courseId]
+    );
+
+    if (!existing.length) {
+      // 🆕 First payment
+      const isHalfPayment = half && amountPaid < coursePrice;
+      const paid = 1; // user has paid something
+      const is_paid_full = isHalfPayment ? 0 : 1;
+      const is_paid_full_date = isHalfPayment ? null : new Date();
+
+      await query(
+        `INSERT INTO Enrollments 
+         (user_email, course_id, paid, is_paid_full, is_paid_full_date, reference, amount_paid, half_payment_date, next_payment_due, paid_at) 
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          user_email,
+          courseId,
+          paid,
+          is_paid_full,
+          is_paid_full_date,
+          reference,
+          amountPaid,
+          isHalfPayment ? new Date() : null,
+          isHalfPayment
+            ? new Date(new Date().setMonth(new Date().getMonth() + 1))
+            : null,
+          new Date(), // record paid_at for successful payment
+        ]
+      );
+    } else {
+      // 🧾 Update existing record
+      const previous = existing[0];
+      const totalPaid = previous.amount_paid + amountPaid;
+      const fullyPaid = totalPaid >= coursePrice;
+
+      await query(
+        `UPDATE Enrollments 
+         SET amount_paid=?, 
+             paid=1,
+             is_paid_full=?, 
+             is_paid_full_date = CASE WHEN ? = 1 THEN NOW() ELSE is_paid_full_date END,
+             reference=?, 
+             paid_at = NOW(),
+             next_payment_due = CASE WHEN ? = 1 THEN NULL ELSE next_payment_due END
+         WHERE user_email=? AND course_id=?`,
+        [
+          totalPaid,
+          fullyPaid ? 1 : 0,
+          fullyPaid ? 1 : 0,
+          reference,
+          fullyPaid ? 1 : 0,
+          user_email,
+          courseId,
+        ]
+      );
+
+      // ⏳ If half payment just made, set the countdown period
+      if (half && !previous.half_payment_date) {
+        await query(
+          "UPDATE Enrollments SET half_payment_date=?, next_payment_due=? WHERE user_email=? AND course_id=?",
+          [
+            new Date(),
+            new Date(new Date().setMonth(new Date().getMonth() + 1)),
+            user_email,
+            courseId,
+          ]
+        );
+      }
+    }
+
+    res.json({ message: "✅ Payment verified and recorded successfully." });
+  } catch (err) {
+    console.error("Payment Verify Error:", err.response?.data || err.message);
+    res.status(500).json({ message: "Payment verification failed." });
+  }
+});
+
 
 // =============== GET ALL PAYMENTS (Admin only) ===============
 payment.get("/paid-list", verifyTokenOptional, async (req, res) => {
@@ -128,63 +203,41 @@ payment.get("/paid-list", verifyTokenOptional, async (req, res) => {
   }
 });
 
-// ================= VERIFY PAYMENT =================
-payment.get("/verify/:reference", verifyTokenOptional, async (req, res) => {
-  const reference = req.params.reference;
-  const user_email = req.user?.email || req.query.email;
-
-  if (!user_email) return res.status(400).json({ message: "Email is required." });
-
-  try {
-    const response = await axios.get(`https://api.paystack.co/transaction/verify/${reference}`, {
-      headers: { Authorization: `Bearer ${process.env.PAYSTACK_SECRET_KEY}` },
-    });
-
-    const transactionData = response.data.data;
-    if (transactionData.status !== "success") return res.status(400).json({ message: "Payment not successful." });
-
-    // Check Enrollments first
-    let record = await query("SELECT * FROM Enrollments WHERE reference=?", [reference]);
-    let table = "Enrollments";
-
-    if (!record.length) {
-      record = await query("SELECT * FROM TempPayments WHERE reference=?", [reference]);
-      table = "TempPayments";
-    }
-
-    if (!record.length) return res.status(404).json({ message: "Payment record not found." });
-
-    const totalPaid = (record[0].amount_paid || 0) + transactionData.amount / 100;
-    const course = await query("SELECT price FROM CreateCourse WHERE id=?", [record[0].course_id]);
-    const coursePrice = course[0].price;
-    const isPaid = totalPaid >= coursePrice ? 1 : 0;
-    const remainingBalance = coursePrice - totalPaid;
-
-    if (table === "Enrollments") {
-      await query(
-        "UPDATE Enrollments SET amount_paid=?, paid=?, paid_at=CASE WHEN ?=1 THEN NOW() ELSE paid_at END WHERE reference=?",
-        [totalPaid, isPaid, isPaid, reference]
-      );
-    } else {
-      await query(
-        "UPDATE TempPayments SET amount_paid=?, paid=?, half_payment_date=CASE WHEN ?=1 THEN NOW() ELSE half_payment_date END WHERE reference=?",
-        [totalPaid, isPaid, isPaid, reference]
-      );
-
-      // Send account creation email only if fully paid and guest has no account
-      if (isPaid) {
-        const existingUser = await query("SELECT * FROM authentication WHERE email=?", [user_email]);
-        if (!existingUser.length) {
-          await sendAccountCreationEmail(user_email);
-        }
-      }
-    }
-
-    res.json({ message: "Payment verified.", paid: isPaid, totalPaid, remainingBalance });
-  } catch (err) {
-    console.error("Payment Verify Error:", err.response?.data || err.message);
-    res.status(500).json({ message: "Payment verification failed." });
-  }
-});
 
 export default payment;
+
+
+// DROP TABLE IF EXISTS Enrollments;
+// DROP TABLE IF EXISTS TempPayments;
+
+// CREATE TABLE Enrollments (
+//   id INT AUTO_INCREMENT PRIMARY KEY,
+//   user_email VARCHAR(255) NOT NULL,
+//   course_id INT NOT NULL,
+//   paid TINYINT(1) DEFAULT 0,       
+//   reference VARCHAR(255) NOT NULL,   
+//   amount_paid DECIMAL(10,2) DEFAULT 0,   
+//   half_payment_date DATETIME NULL,  
+//   next_payment_due DATETIME NULL
+//   paid_at DATETIME NULL,      
+//   is_paid_full TINYINT(1) DEFAULT 0,
+//   is_paid_full_date DATETIME NULL;
+//   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+//   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+//   FOREIGN KEY (course_id) REFERENCES CreateCourse(id)
+// );
+
+
+// CREATE TABLE TempPayments (
+//   id INT AUTO_INCREMENT PRIMARY KEY,
+//   email VARCHAR(255) NOT NULL,
+//   course_id INT NOT NULL,
+//   amount_paid DECIMAL(10,2) DEFAULT 0,
+//   reference VARCHAR(255) NOT NULL,
+//   half_payment_date DATETIME NULL,
+//   paid TINYINT(1) DEFAULT 0,
+//   paid_at DATETIME NULL,
+//   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+//   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+//   FOREIGN KEY (course_id) REFERENCES CreateCourse(id)
+// );
