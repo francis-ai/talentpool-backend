@@ -38,6 +38,67 @@ const sendAccountCreationEmail = async (toEmail) => {
   }
 };
 
+payment.get("/my-courses", verifyTokenOptional, async (req, res) => {
+  const user_email = req.user.email;
+
+  try {
+    const enrolledCourses = await query(
+      `SELECT 
+          e.course_id, 
+          e.amount_paid, 
+          e.paid, 
+          e.is_paid_full, 
+          e.next_payment_due,
+          c.title, 
+          c.price, 
+          c.image_url
+       FROM Enrollments e
+       JOIN CreateCourse c ON e.course_id = c.id
+       WHERE e.user_email = ?
+       ORDER BY e.paid_at DESC`,
+      [user_email]
+    );
+
+    const formattedCourses = enrolledCourses.map((course) => {
+      let paymentStatus = "not_enrolled";
+      let countdown = null;
+      let daysLeft = null;
+
+      if (course.is_paid_full === 1) {
+        paymentStatus = "fully_paid";
+      } else if (course.paid === 1 && course.is_paid_full === 0) {
+        paymentStatus = "half_paid";
+        countdown = course.next_payment_due;
+
+        // 🧮 Calculate remaining days
+        if (course.next_payment_due) {
+          const dueDate = new Date(course.next_payment_due);
+          const now = new Date();
+          const diffTime = dueDate - now;
+          daysLeft = Math.ceil(diffTime / (1000 * 60 * 60 * 24)); // convert ms → days
+        }
+      }
+
+      return {
+        course_id: course.course_id,
+        title: course.title,
+        price: course.price,
+        image_url: course.image_url,
+        amount_paid: course.amount_paid,
+        paymentStatus,
+        countdown,
+        daysLeft: daysLeft > 0 ? daysLeft : 0, // ensure no negative numbers
+      };
+    });
+
+    res.json(formattedCourses);
+  } catch (err) {
+    console.error("Fetch My Courses Error:", err.message);
+    res.status(500).json({ message: "Failed to fetch your courses." });
+  }
+});
+
+
 // ================= INITIATE PAYMENT =================
 payment.post("/pay/:courseId", verifyTokenOptional, async (req, res) => {
   const { courseId } = req.params;

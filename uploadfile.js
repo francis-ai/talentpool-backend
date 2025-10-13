@@ -184,19 +184,53 @@ uploaded.get("/courses-with-status", verifyToken, async (req, res) => {
 
 // 7️⃣ Get MY enrolled & paid courses (STUDENT ONLY)
 uploaded.get("/my-courses", verifyToken, async (req, res) => {
+  const user_email = req.user.email;
+
   try {
-    const user_email = req.user.email;
-    const rows = await query(
-      `SELECT c.id, c.title, c.description, c.price, e.paid_at
+    const enrolledCourses = await query(
+      `SELECT 
+          e.course_id, 
+          e.amount_paid, 
+          e.paid, 
+          e.is_paid_full, 
+          e.next_payment_due,
+          c.title, 
+          c.price, 
+          c.image_url
        FROM Enrollments e
        JOIN CreateCourse c ON e.course_id = c.id
-       WHERE e.user_email = ? AND e.paid = 1`,
+       WHERE e.user_email = ?
+       ORDER BY e.paid_at DESC`,
       [user_email]
     );
-    res.json(rows);
+
+    // Build a clear response for frontend
+    const formattedCourses = enrolledCourses.map((course) => {
+      let paymentStatus = "not_enrolled";
+      let countdown = null;
+
+      if (course.is_paid_full === 1) {
+        paymentStatus = "fully_paid";
+      } else if (course.paid === 1 && course.is_paid_full === 0) {
+        paymentStatus = "half_paid";
+        countdown = course.next_payment_due;
+      }
+
+      return {
+        course_id: course.course_id,
+        title: course.title,
+        price: course.price,
+        image_url: course.image_url,
+        amount_paid: course.amount_paid,
+        paymentStatus,
+        countdown,
+      };
+    });
+
+    res.json(formattedCourses);
   } catch (err) {
-    console.error("My Courses Error:", err);
-    res.status(500).json({ message: "Failed to fetch enrolled courses" });
+    console.error("Fetch My Courses Error:", err.message);
+    res.status(500).json({ message: "Failed to fetch your courses." });
   }
 });
 
