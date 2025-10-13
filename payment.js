@@ -205,39 +205,3 @@ payment.get("/paid-list", verifyTokenOptional, async (req, res) => {
 
 
 export default payment;
-
-
-// DROP TABLE IF EXISTS Enrollments;
-// DROP TABLE IF EXISTS TempPayments;
-
-// CREATE TABLE Enrollments (
-//   id INT AUTO_INCREMENT PRIMARY KEY,
-//   user_email VARCHAR(255) NOT NULL,
-//   course_id INT NOT NULL,
-//   paid TINYINT(1) DEFAULT 0,       
-//   reference VARCHAR(255) NOT NULL,   
-//   amount_paid DECIMAL(10,2) DEFAULT 0,   
-//   half_payment_date DATETIME NULL,  
-//   next_payment_due DATETIME NULL
-//   paid_at DATETIME NULL,      
-//   is_paid_full TINYINT(1) DEFAULT 0,
-//   is_paid_full_date DATETIME NULL;
-//   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-//   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-//   FOREIGN KEY (course_id) REFERENCES CreateCourse(id)
-// );
-
-
-// CREATE TABLE TempPayments (
-//   id INT AUTO_INCREMENT PRIMARY KEY,
-//   email VARCHAR(255) NOT NULL,
-//   course_id INT NOT NULL,
-//   amount_paid DECIMAL(10,2) DEFAULT 0,
-//   reference VARCHAR(255) NOT NULL,
-//   half_payment_date DATETIME NULL,
-//   paid TINYINT(1) DEFAULT 0,
-//   paid_at DATETIME NULL,
-//   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-//   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-//   FOREIGN KEY (course_id) REFERENCES CreateCourse(id)
-// );

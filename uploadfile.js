@@ -140,19 +140,39 @@ uploaded.get("/courses-with-status", verifyToken, async (req, res) => {
   try {
     const courses = await query("SELECT * FROM CreateCourse");
     const enrollments = await query(
-      "SELECT course_id, paid FROM Enrollments WHERE user_email = ?",
+      "SELECT course_id, paid, is_paid_full, next_payment_due FROM Enrollments WHERE user_email = ?",
       [user_email]
     );
 
     const enrollmentMap = {};
     enrollments.forEach((en) => {
-      enrollmentMap[en.course_id] = en.paid;
+      enrollmentMap[en.course_id] = {
+        paid: en.paid,
+        is_paid_full: en.is_paid_full,
+        next_payment_due: en.next_payment_due,
+      };
     });
 
-    const coursesWithStatus = courses.map((course) => ({
-      ...course,
-      purchased: enrollmentMap[course.id] === 1,
-    }));
+    const coursesWithStatus = courses.map((course) => {
+      const enroll = enrollmentMap[course.id];
+      let paymentStatus = "not_enrolled";
+      let countdown = null;
+
+      if (enroll) {
+        if (enroll.is_paid_full === 1) {
+          paymentStatus = "fully_paid";
+        } else if (enroll.paid === 1 && enroll.is_paid_full === 0) {
+          paymentStatus = "half_paid";
+          countdown = enroll.next_payment_due; // display countdown in frontend
+        }
+      }
+
+      return {
+        ...course,
+        paymentStatus,
+        countdown,
+      };
+    });
 
     res.json(coursesWithStatus);
   } catch (err) {
@@ -160,6 +180,7 @@ uploaded.get("/courses-with-status", verifyToken, async (req, res) => {
     res.status(500).json({ message: "Failed to load courses" });
   }
 });
+
 
 // 7️⃣ Get MY enrolled & paid courses (STUDENT ONLY)
 uploaded.get("/my-courses", verifyToken, async (req, res) => {

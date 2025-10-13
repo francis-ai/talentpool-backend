@@ -15,6 +15,7 @@ import regforcourseRoutes from "./regforcourseRoutes.js";
 import Talents from "./Talents.js";
 import blogRouter from "./blog.js";
 import authentication from "./AuthenticationRoute.js";
+import courseModule from "./courseModule.js";
 import subscriptionRoute from "./routes/subscriptionRoutes.js"
 
 dotenv.config();
@@ -79,6 +80,7 @@ app.use("/api", Announcement);
 app.use("/api", Talents);
 app.use("/api/blogs", blogRouter);
 app.use("/api", subscriptionRoute);
+app.use("/api", courseModule);
 
 // =================== HEALTH CHECK ===================
 app.get("/", (req, res) => {
