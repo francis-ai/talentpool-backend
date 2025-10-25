@@ -196,7 +196,6 @@ authentication.post("/logout", async (req, res) => {
   }
 });
 
-
 // =================== ADMIN PROMOTE TO TUTOR ===================
 authentication.put("/promote-tutor/:email", verifyToken, async (req, res) => {
   if (req.user.role !== "admin") return res.status(403).json({ message: "Access denied" });
@@ -233,9 +232,6 @@ authentication.put("/promote-tutor/:email", verifyToken, async (req, res) => {
   }
 });
 
-// =================== OTHER ROUTES (PROFILE, USERS, PASSWORD RESET, ETC.) ===================
-
-
 // =================== LOGOUT ===================
 authentication.post("/logout", async (req, res) => {
   const { refreshToken } = req.cookies;
@@ -255,8 +251,6 @@ authentication.post("/logout", async (req, res) => {
     return res.status(500).json({ message: "Logout failed" });
   }
 });
-
-
 
 // =================== FORGOT PASSWORD ===================
 authentication.post("/forgot-password", async (req, res) => {
@@ -327,7 +321,6 @@ authentication.post("/reset-password/:token", async (req, res) => {
   }
 });
 
-
 // =================== GET SINGLE USER ===================
 authentication.get("/users/:email", verifyToken, async (req, res) => {
   try {
@@ -396,7 +389,6 @@ authentication.delete("/users/:email", verifyToken, async (req, res) => {
   }
 });
 
-
 // =================== GET ALL REGISTERED USERS ===================
 authentication.get("/users", verifyToken, async (req, res) => {
   try {
@@ -417,7 +409,6 @@ authentication.get("/users", verifyToken, async (req, res) => {
     res.status(500).json({ message: "Failed to fetch users" });
   }
 });
-
 
 // =================== GET TOTAL NUMBER OF USERS ===================
 authentication.get("/total-users", verifyToken, async (req, res) => {
@@ -441,7 +432,6 @@ authentication.get("/total-users", verifyToken, async (req, res) => {
     res.status(500).json({ message: "Failed to fetch total users" });
   }
 });
-
 
 // =================== GET LOGGED-IN USER PROFILE ===================
 authentication.get("/profile", verifyToken, async (req, res) => {
@@ -505,6 +495,24 @@ authentication.put("/update-password", verifyToken, async (req, res) => {
     return res.status(500).json({ message: "Failed to update password" });
   }
 });
+
+authentication.get("/all-users", verifyToken, async (req, res) => {
+  try {
+    const users = await query(
+      "SELECT id, name, email, role, created_at FROM authentication ORDER BY id DESC"
+    );
+
+    // ✅ Always return an array
+    res.status(200).json(users || []);
+  } catch (err) {
+    console.error("❌ Error fetching all users:", err);
+    res.status(500).json({ message: "Failed to fetch users" });
+  }
+});
+
+
+
+
 
 
 

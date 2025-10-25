@@ -268,16 +268,35 @@ router.get("/verify-payment/:reference", async (req, res) => {
   }
 });
 
-// ================= GET ALL REGISTRATIONS (ADMIN ONLY) =================
+// // ================= GET ALL REGISTRATIONS (ADMIN ONLY) =================
 router.get("/all", verifyToken, async (req, res) => {
   try {
-    if (req.user.role !== "admin") return res.status(403).json({ message: "Access denied. Admins only." });
+    if (req.user.role !== "admin")
+      return res.status(403).json({ message: "Access denied. Admins only." });
 
-    const rows = await query("SELECT * FROM regforcourse ORDER BY created_at DESC");
-    res.status(200).json({ totalRegistrations: rows.length, registrations: rows });
+    const rows = await query(`
+      SELECT 
+        r.id,
+        r.user_email,
+        r.course_id,
+        c.title AS course_title,
+        r.created_at
+      FROM Enrollments AS r
+      LEFT JOIN createcourse AS c 
+        ON r.course_id = c.id
+      ORDER BY r.created_at DESC
+    `);
+
+    res.status(200).json({
+      totalEnrollments: rows.length,
+      enrollments: rows,
+    });
   } catch (err) {
-    console.error("❌ Error fetching registrations:", err);
-    res.status(500).json({ message: "Failed to fetch registrations", error: err.message });
+    console.error("❌ Error fetching enrollments:", err);
+    res.status(500).json({
+      message: "Failed to fetch enrollments",
+      error: err.message,
+    });
   }
 });
 
